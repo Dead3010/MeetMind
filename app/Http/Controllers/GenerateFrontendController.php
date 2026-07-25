@@ -11,35 +11,65 @@ class GenerateFrontendController extends Controller
     {
         $request->validate(['transcript' => 'required|string|min:20']);
 
-        $apiKey    = config('services.gemini.key');
+        $apiKey     = config('services.gemini.key');
         $transcript = $request->transcript;
+        $style      = $request->input('style', 'modern');
+
+        $styleGuide = match($style) {
+            'corporate' => 'Corporate style: navy/white palette, clean sans-serif fonts, formal layout with sidebar navigation, data-dense tables, conservative color accents in blue/grey tones.',
+            'minimal'   => 'Minimal style: pure white background, generous whitespace, light grey borders, black text, no gradients, flat buttons, single-column layouts where possible.',
+            default     => 'Modern style: vibrant gradients, rounded corners, card-based layouts, subtle shadows, colorful accent colors, glassmorphism elements where appropriate.',
+        };
 
         $prompt = <<<EOT
-You are an expert frontend developer. Based on the meeting transcript below, generate a complete single-file HTML application that serves as a frontend prototype/mockup for the client's requirements.
+You are a world-class frontend developer and UI/UX designer. Analyze the meeting transcript below and generate a complete, production-quality single-file HTML application as a prototype for the client's requirements.
 
 MEETING TRANSCRIPT:
 {$transcript}
 
-INSTRUCTIONS:
-1. Analyze what kind of app/CRM/system the client needs
-2. Generate a COMPLETE, beautiful, single HTML file with embedded CSS and JS
-3. Include realistic UI with proper navigation, forms, tables, and sample data
-4. Use a modern, professional design (dark or light theme, your choice)
-5. Include ALL main sections/modules mentioned in the meeting
-6. Add sample/dummy data so it looks realistic and functional
-7. Make buttons and forms interactive (use localStorage for data persistence if needed)
-8. Add a prominent header with the app name derived from the requirements
+DESIGN STYLE: {$styleGuide}
 
-REQUIREMENTS FOR THE HTML:
-- Must be a single complete HTML file (no external dependencies except CDN links)
-- Use Tailwind CSS via CDN for styling
-- Use vanilla JS only
-- Must have proper navigation/sidebar
-- Must look like a real professional application
-- Include at least 3-4 main modules/sections based on requirements
-- Add sample data (at least 5-10 records per section)
+STEP 1 — ANALYSIS (do this mentally, do not output it):
+- Identify the core domain (CRM, ERP, inventory, HR, project management, etc.)
+- List every module/feature mentioned or implied
+- Identify key entities (users, orders, tasks, etc.) and their relationships
+- Determine the primary user role and their main workflow
 
-Return ONLY the complete HTML code, nothing else. Start with <!DOCTYPE html>.
+STEP 2 — GENERATE the HTML with these requirements:
+
+STRUCTURE:
+- Sticky top header with app logo/name, user avatar, notification bell
+- Left sidebar with icon + label navigation for all modules
+- Main content area with breadcrumb trail
+- At least 4-5 distinct module screens (switchable via sidebar)
+- Dashboard/home screen with KPI cards and mini charts
+
+DATA & INTERACTIVITY:
+- Minimum 10 realistic records per data table (use domain-appropriate fake names/values)
+- Working search and filter on tables
+- Add/Edit modal forms with validation
+- Delete with confirmation
+- LocalStorage persistence for CRUD operations
+- Charts using Chart.js via CDN (at least 2 charts on dashboard)
+- Toast notifications for user actions
+
+UI POLISH:
+- Smooth CSS transitions on hover/active states
+- Loading skeletons or spinners where appropriate
+- Empty state illustrations (SVG or emoji) when no data
+- Responsive: works on mobile with hamburger menu
+- Active nav state highlighting
+- Keyboard shortcut hints in tooltips
+
+TECHNICAL:
+- Single HTML file, all CSS and JS inline
+- Tailwind CSS via CDN for styling
+- Chart.js via CDN for charts
+- No other external dependencies
+- Vanilla JS only, no frameworks
+- Must start with <!DOCTYPE html>
+
+Return ONLY the complete HTML. No explanation, no markdown fences. Start directly with <!DOCTYPE html>.
 EOT;
 
         try {
@@ -48,8 +78,8 @@ EOT;
                 [
                     'contents'         => [['parts' => [['text' => $prompt]]]],
                     'generationConfig' => [
-                        'temperature'     => 0.7,
-                        'maxOutputTokens' => 8192,
+                        'temperature'     => 0.8,
+                        'maxOutputTokens' => 16384,
                     ],
                 ]
             );

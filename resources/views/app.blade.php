@@ -670,6 +670,23 @@
     /* ── Misc ── */
     .divider { border: none; border-top: 1px solid #f1f5f9; margin: 4px 0; }
 
+    /* ── Audio Visualizer ── */
+    .visualizer-wrap { display: none; padding: 4px 0; }
+    #visualizer { width: 100%; height: 48px; border-radius: 8px; background: #f8fafc; border: 1px solid #e2e8f0; display: block; }
+
+    /* ── Lang Selector ── */
+    .lang-selector { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 4px 8px; font-size: 11px; color: #475569; outline: none; cursor: pointer; }
+
+    /* ── Pause Btn ── */
+    .btn-pause { background: #fff7ed; color: #f97316; border: 1px solid #fed7aa; }
+    .btn-pause:hover { background: #ffedd5; }
+
+    /* ── Style Chips ── */
+    .style-row { display: none; gap: 6px; flex-wrap: wrap; align-items: center; padding: 2px 0; }
+    .style-label { font-size: 11px; color: #7c3aed; font-weight: 700; }
+    .style-chip { font-size: 11px; font-weight: 600; padding: 5px 12px; border-radius: 20px; border: 1px solid #e9d5ff; background: #faf5ff; color: #7c3aed; cursor: pointer; transition: all 0.15s; }
+    .style-chip.active { background: #7c3aed; color: white; border-color: #7c3aed; }
+
     @media (min-width: 480px) {
       body { max-width: 480px; margin: 0 auto; }
     }
@@ -734,12 +751,21 @@
 <div class="screen" id="screen-record">
   <div class="record-status-bar">
     <span class="status-text" id="rec-status">Ready to record</span>
+    <select class="lang-selector" id="lang-selector">
+      <option value="en-US">🇬🇧 EN</option>
+      <option value="hi-IN">🇮🇳 HI</option>
+      <option value="">🌐 Auto</option>
+    </select>
     <span class="timer" id="rec-timer">00:00</span>
   </div>
 
   <div class="record-btn-wrap">
     <button class="record-btn" id="record-btn">🎙</button>
     <div class="record-label" id="record-label">Tap to Start</div>
+    <button class="btn-action btn-pause" id="pause-btn" style="display:none;margin-top:6px;min-width:90px;">⏸ Pause</button>
+  </div>
+  <div class="visualizer-wrap" id="visualizer-wrap">
+    <canvas id="visualizer"></canvas>
   </div>
 
   <div class="transcript-box">
@@ -751,10 +777,20 @@
 
   <div class="result-box" id="result-box"></div>
 
+  <div class="style-row" id="style-row">
+    <span class="style-label">Style:</span>
+    <span class="style-chip active" data-style="modern">🎨 Modern</span>
+    <span class="style-chip" data-style="corporate">🏢 Corporate</span>
+    <span class="style-chip" data-style="minimal">⬜ Minimal</span>
+  </div>
   <div class="action-row" id="action-row" style="display:none">
     <button class="btn-action btn-save" id="save-btn">✓ Save</button>
-    <button class="btn-action btn-generate" id="generate-btn">🚀 App Preview</button>
+    <button class="btn-action btn-generate" id="generate-btn">🚀 Generate</button>
     <button class="btn-action btn-clear" id="clear-btn">↺ Clear</button>
+  </div>
+  <div class="action-row" id="preview-action-row" style="display:none">
+    <button class="btn-action btn-generate" id="download-btn">⬇ Download</button>
+    <button class="btn-action btn-generate" id="regenerate-btn">🔄 Regen</button>
   </div>
 </div>
 
@@ -945,18 +981,68 @@
   });
 
   // ── Recording ───────────────────────────────────────────────────────────────
-  let recognition   = null;
-  let isListening   = false;
+  let recognition    = null;
+  let isListening    = false;
+  let isPaused       = false;
   let fullTranscript = [];
   let currentSegment = '';
   let timerInterval  = null;
   let timerSeconds   = 0;
   let analysisResult = null;
   let lastSavedId    = null;
+  let generatedHtml  = null;
+  let selectedStyle  = 'modern';
 
-  function setStatus(msg) {
-    document.getElementById('rec-status').textContent = msg;
+  // Wake Lock
+  let wakeLock = null;
+  async function acquireWakeLock() {
+    if ('wakeLock' in navigator) {
+      try { wakeLock = await navigator.wakeLock.request('screen'); } catch {}
+    }
   }
+  function releaseWakeLock() { if (wakeLock) { wakeLock.release(); wakeLock = null; } }
+
+  // Audio Visualizer
+  let audioCtx = null, analyser = null, vizStream = null, animFrame = null;
+  const vizCanvas = document.getElementById('visualizer');
+  const vizCtx    = vizCanvas.getContext('2d');
+
+  function startVisualizer(stream) {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 256;
+    audioCtx.createMediaStreamSource(stream).connect(analyser);
+    document.getElementById('visualizer-wrap').style.display = 'block';
+    drawViz();
+  }
+
+  function drawViz() {
+    animFrame = requestAnimationFrame(drawViz);
+    const buf = new Uint8Array(analyser.frequencyBinCount);
+    analyser.getByteFrequencyData(buf);
+    vizCanvas.width = vizCanvas.offsetWidth;
+    vizCtx.clearRect(0, 0, vizCanvas.width, vizCanvas.height);
+    const w = vizCanvas.width / buf.length;
+    buf.forEach((v, i) => {
+      const h = (v / 255) * vizCanvas.height;
+      vizCtx.fillStyle = `hsl(${220 + (v / 255) * 40},70%,55%)`;
+      vizCtx.fillRect(i * w, vizCanvas.height - h, w - 1, h);
+    });
+  }
+
+  function stopVisualizer() {
+    cancelAnimationFrame(animFrame);
+    document.getElementById('visualizer-wrap').style.display = 'none';
+    if (vizStream) { vizStream.getTracks().forEach(t => t.stop()); vizStream = null; }
+    if (audioCtx) { audioCtx.close(); audioCtx = null; }
+  }
+
+  // Speaker detection
+  let lastSpeechTime = 0;
+  let currentSpeaker = 1;
+  const SPEAKER_GAP  = 2000;
+
+  function setStatus(msg) { document.getElementById('rec-status').textContent = msg; }
 
   function updateTranscript(final, interim) {
     document.getElementById('transcript-content').innerHTML =
@@ -968,20 +1054,53 @@
     else stopAndAnalyze();
   });
 
-  function startRecording() {
+  // Pause / Resume
+  document.getElementById('pause-btn').addEventListener('click', () => {
+    if (!isListening) return;
+    if (!isPaused) {
+      isPaused = true;
+      recognition.stop();
+      clearInterval(timerInterval);
+      document.getElementById('pause-btn').textContent = '▶ Resume';
+      setStatus('Paused');
+    } else {
+      isPaused = false;
+      recognition.start();
+      timerInterval = setInterval(() => {
+        timerSeconds++;
+        const m = String(Math.floor(timerSeconds / 60)).padStart(2, '0');
+        const s = String(timerSeconds % 60).padStart(2, '0');
+        const el = document.getElementById('rec-timer');
+        if (el) el.textContent = `${m}:${s}`;
+      }, 1000);
+      document.getElementById('pause-btn').textContent = '⏸ Pause';
+      setStatus('Recording…');
+    }
+  });
+
+  async function startRecording() {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SR) { setStatus('Speech recognition not supported.'); return; }
 
+    try {
+      vizStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      startVisualizer(vizStream);
+    } catch {}
+
+    acquireWakeLock();
+    lastSpeechTime = 0; currentSpeaker = 1;
+
     recognition = new SR();
-    recognition.continuous = true;
+    recognition.continuous     = true;
     recognition.interimResults = true;
-    recognition.lang = 'en-US';
+    recognition.lang = document.getElementById('lang-selector').value;
 
     recognition.onstart = () => {
       isListening = true;
       document.getElementById('record-btn').classList.add('recording');
       document.getElementById('record-btn').textContent = '⏹';
       document.getElementById('record-label').textContent = 'Tap to Stop';
+      document.getElementById('pause-btn').style.display = 'inline-flex';
       setStatus('Recording…');
       timerSeconds = 0;
       clearInterval(timerInterval);
@@ -995,11 +1114,18 @@
     };
 
     recognition.onresult = (event) => {
+      const now = Date.now();
       let interim = '';
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const t = event.results[i][0].transcript;
-        if (event.results[i].isFinal) { fullTranscript.push('[You] ' + t); currentSegment = ''; }
-        else { interim = t; currentSegment = interim; }
+        if (event.results[i].isFinal) {
+          if (lastSpeechTime && (now - lastSpeechTime) > SPEAKER_GAP) {
+            currentSpeaker = currentSpeaker === 1 ? 2 : 1;
+          }
+          lastSpeechTime = now;
+          fullTranscript.push(`[Speaker ${currentSpeaker}] ${t}`);
+          currentSegment = '';
+        } else { interim = t; currentSegment = interim; }
       }
       updateTranscript(fullTranscript.join(' '), interim);
     };
@@ -1009,17 +1135,21 @@
       else if (e.error !== 'no-speech') setStatus('Mic error: ' + e.error);
     };
 
-    recognition.onend = () => { if (isListening) recognition.start(); };
+    recognition.onend = () => { if (isListening && !isPaused) recognition.start(); };
     recognition.start();
   }
 
   function stopRecording() {
-    isListening = false;
+    isListening = false; isPaused = false;
     clearInterval(timerInterval);
     if (recognition) { recognition.stop(); recognition = null; }
+    stopVisualizer();
+    releaseWakeLock();
     document.getElementById('record-btn').classList.remove('recording');
     document.getElementById('record-btn').textContent = '🎙';
     document.getElementById('record-label').textContent = 'Tap to Start';
+    document.getElementById('pause-btn').style.display = 'none';
+    document.getElementById('pause-btn').textContent = '⏸ Pause';
   }
 
   async function stopAndAnalyze() {
@@ -1043,14 +1173,11 @@
       const saveRes  = await fetch(`${API}/meetings`, { method: 'POST', headers: apiHeaders(), body: JSON.stringify(meeting) });
       const saved    = await saveRes.json();
 
-      if (saved.id) {
-        lastSavedId = saved.id;
-        setStatus('✓ Saved to dashboard!');
-      } else {
-        setStatus('Analysis done — save manually.');
-      }
+      if (saved.id) { lastSavedId = saved.id; setStatus('✓ Saved to dashboard!'); }
+      else { setStatus('Analysis done — save manually.'); }
 
       document.getElementById('action-row').style.display = 'flex';
+      document.getElementById('style-row').style.display = 'flex';
     } catch (e) {
       setStatus('Failed: ' + e.message);
     }
@@ -1133,19 +1260,32 @@
     } catch { btn.textContent = '✓ Save'; btn.disabled = false; }
   });
 
-  // ── Generate App Preview ─────────────────────────────────────────────────────
-  document.getElementById('generate-btn').addEventListener('click', async () => {
+  // ── Style Selector ───────────────────────────────────────────────────────────
+  document.querySelectorAll('.style-chip').forEach(c => {
+    c.addEventListener('click', () => {
+      document.querySelectorAll('.style-chip').forEach(x => x.classList.remove('active'));
+      c.classList.add('active');
+      selectedStyle = c.dataset.style;
+    });
+  });
+
+  // ── Generate / Regenerate ────────────────────────────────────────────────────
+  async function doGenerate() {
     const transcript = (fullTranscript.join(' ') + ' ' + currentSegment).trim();
     if (!transcript || transcript.length < 20) { setStatus('Record some transcript first.'); return; }
     const btn = document.getElementById('generate-btn');
     btn.disabled = true; btn.textContent = '⏳ Generating…';
     setStatus('Generating app preview…');
     try {
-      const res  = await fetch(`${API}/generate-frontend`, { method: 'POST', headers: apiHeaders(), body: JSON.stringify({ transcript }) });
+      const res  = await fetch(`${API}/generate-frontend`, {
+        method: 'POST', headers: apiHeaders(),
+        body: JSON.stringify({ transcript, style: selectedStyle })
+      });
       const data = await res.json();
-      if (data.error) { setStatus('Generate failed: ' + data.error); btn.disabled = false; btn.textContent = '🚀 App Preview'; return; }
+      if (data.error) { setStatus('Generate failed: ' + data.error); btn.disabled = false; btn.textContent = '🚀 Generate'; return; }
 
-      // Save to server so it shows in dashboard on any device
+      generatedHtml = data.html;
+
       if (lastSavedId) {
         await fetch(`${API}/meetings/${lastSavedId}/preview`, {
           method: 'POST', headers: apiHeaders(), body: JSON.stringify({ html: data.html })
@@ -1154,18 +1294,36 @@
 
       const blob = new Blob([data.html], { type: 'text/html' });
       window.open(URL.createObjectURL(blob), '_blank');
-      setStatus('App preview saved to dashboard ✓');
+      setStatus('App preview saved ✓');
+      document.getElementById('preview-action-row').style.display = 'flex';
     } catch (e) { setStatus('Failed: ' + e.message); }
-    btn.disabled = false; btn.textContent = '🚀 App Preview';
+    btn.disabled = false; btn.textContent = '🚀 Generate';
+  }
+
+  document.getElementById('generate-btn').addEventListener('click', doGenerate);
+
+  document.getElementById('regenerate-btn').addEventListener('click', async () => {
+    document.getElementById('preview-action-row').style.display = 'none';
+    await doGenerate();
+  });
+
+  document.getElementById('download-btn').addEventListener('click', () => {
+    if (!generatedHtml) return;
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([generatedHtml], { type: 'text/html' }));
+    a.download = 'meetmind-preview.html';
+    a.click();
   });
 
   // ── Clear ────────────────────────────────────────────────────────────────────
   document.getElementById('clear-btn').addEventListener('click', () => {
-    fullTranscript = []; currentSegment = ''; analysisResult = null; lastSavedId = null;
+    fullTranscript = []; currentSegment = ''; analysisResult = null; lastSavedId = null; generatedHtml = null;
     document.getElementById('transcript-content').innerHTML = '<span class="transcript-placeholder">Transcript will appear here when recording starts…</span>';
     document.getElementById('result-box').style.display = 'none';
     document.getElementById('result-box').innerHTML = '';
     document.getElementById('action-row').style.display = 'none';
+    document.getElementById('style-row').style.display = 'none';
+    document.getElementById('preview-action-row').style.display = 'none';
     document.getElementById('rec-timer').textContent = '00:00';
     const saveBtn = document.getElementById('save-btn');
     saveBtn.textContent = '✓ Save'; saveBtn.disabled = false; saveBtn.style.background = '';
