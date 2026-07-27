@@ -14,17 +14,21 @@ class MeetingController extends Controller
     public function store(Request $request)
     {
         $meeting = $request->user()->meetings()->create([
-            'title'             => $request->title,
-            'summary'           => $request->summary,
-            'topic'             => $request->topic,
-            'priority'          => $request->priority,
-            'priority_reason'   => $request->priority_reason,
-            'action_items'      => $request->action_items ?? [],
-            'key_decisions'     => $request->key_decisions ?? [],
-            'sentiment'         => $request->sentiment,
-            'duration_estimate' => $request->duration_estimate,
-            'transcript'        => $request->transcript,
-            'date'              => $request->date ?? now(),
+            'title'              => $request->title,
+            'summary'            => $request->summary,
+            'topic'              => $request->topic,
+            'priority'           => $request->priority,
+            'priority_reason'    => $request->priority_reason,
+            'action_items'       => $request->action_items ?? [],
+            'key_decisions'      => $request->key_decisions ?? [],
+            'sentiment'          => $request->sentiment,
+            'duration_estimate'  => $request->duration_estimate,
+            'transcript'         => $request->transcript,
+            'date'               => $request->date ?? now(),
+            'conclusion'         => $request->conclusion,
+            'conversation_flow'  => $request->conversation_flow ?? [],
+            'speaker_sentiments' => $request->speaker_sentiments ?? [],
+            'mom'                => $request->mom,
         ]);
 
         return response()->json($meeting);
