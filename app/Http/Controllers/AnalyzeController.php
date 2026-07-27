@@ -11,7 +11,7 @@ class AnalyzeController extends Controller
     {
         $request->validate(['transcript' => 'required|string|min:20']);
 
-        $apiKey     = config('services.gemini.key');
+        $apiKey     = $request->input('gemini_key') ?: config('services.gemini.key');
         $transcript = $request->transcript;
 
         $prompt = <<<EOT
